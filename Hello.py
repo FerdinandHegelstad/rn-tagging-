@@ -1,51 +1,112 @@
-# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022)
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
+from dotenv import load_dotenv
 import streamlit as st
-from streamlit.logger import get_logger
+import json
+import requests
+from bs4 import BeautifulSoup
+import os
+from openai import OpenAI
+from presets import preset_json, preset_url
+import pandas as pd
 
-LOGGER = get_logger(__name__)
+
+def create_excel(scores_dict, filename="relevance_scores.xlsx"):
+    # Convert the dictionary to a DataFrame
+    df = pd.DataFrame(list(scores_dict.items()), columns=['Tag', 'Score'])
+    # Write the DataFrame to an Excel file, overwriting if it already exists
+    df.to_excel(filename, index=False)
+    st.success(f"Excel file created/updated: {filename}")
 
 
-def run():
-    st.set_page_config(
-        page_title="Hello",
-        page_icon="👋",
-    )
+# Load the variables from .env file
+load_dotenv()
 
-    st.write("# Welcome to Streamlit! 👋")
+import sys
+print(sys.executable)
 
-    st.sidebar.success("Select a demo above.")
+client = OpenAI()
 
-    st.markdown(
-        """
-        Streamlit is an open-source app framework built specifically for
-        Machine Learning and Data Science projects.
-        **👈 Select a demo from the sidebar** to see some examples
-        of what Streamlit can do!
-        ### Want to learn more?
-        - Check out [streamlit.io](https://streamlit.io)
-        - Jump into our [documentation](https://docs.streamlit.io)
-        - Ask a question in our [community
-          forums](https://discuss.streamlit.io)
-        ### See more complex demos
-        - Use a neural net to [analyze the Udacity Self-driving Car Image
-          Dataset](https://github.com/streamlit/demo-self-driving)
-        - Explore a [New York City rideshare dataset](https://github.com/streamlit/demo-uber-nyc-pickups)
-    """
-    )
+def get_relevance_scores_streaming(article_text, tags_json):
+    try:
+        prompt = f"Please return the JSON object with relevance scores from 0 to 1 for each of the following tags. Create a 1-1 correspondance with the tags given, and the ratings returned. Do not create news tags outside of these.:\n{tags_json}., based on their relevance to this article:\n{article_text}\n\n Then sort the Json based on relevance highest to lowest."
+
+        stream = client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format={"type": "json_object"},  # Enable JSON mode
+            stream=True,
+        )
+
+        # ... rest of the function ...
+
+
+        # Initialize an empty string to accumulate the response
+        response_text = ""
+        for chunk in stream:
+            response_text += chunk.choices[0].delta.content or ""
+        
+        return response_text
+    except Exception as e:
+        return f"An error occurred while querying OpenAI: {e}"
+
+
+def scrape_article_content(url):
+    try:
+        # Send a request to the URL
+        response = requests.get(url)
+
+        # Check if the request was successful
+        if response.status_code == 200:
+            # Parse the content of the page
+            soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Extract the main content of the article
+            # This part might need customization based on the structure of the webpage
+            # Here, I'm assuming the main content is within <article> tags
+            article = soup.find('article')
+            if article:
+                return article.get_text(strip=True)
+            else:
+                return "Article content could not be extracted. Please check the URL structure."
+        else:
+            return f"Failed to retrieve the webpage. Status code: {response.status_code}"
+    except requests.exceptions.RequestException as e:
+        # Handle any exceptions that occur during the request
+        return f"An error occurred: {e}"
+
+
+
+
+def main():
+    st.title("Web Article Relevance Scorer")
+
+    # UI elements for input
+    url = st.text_input("Enter the URL of the article", preset_url)
+    json_input = st.text_area("Enter your tag structure in JSON format", preset_json)
+
+    print(preset_json)
+
+    if st.button("Score Relevance"):
+        if url and json_input:
+            article_text = scrape_article_content(url)
+            response_placeholder = st.empty()  # Create a placeholder for streaming response
+
+            # Initialize an empty string to accumulate the response
+            response_text = ""
+
+            # Stream the response and update the UI in real-time
+            for response_chunk in get_relevance_scores_streaming(article_text, json_input):
+                response_text += response_chunk  # Accumulate the response text
+                response_placeholder.write(response_text)  # Update the placeholder with the accumulated text
+
+            try:
+                scores_dict = json.loads(response_text)
+                create_excel(scores_dict)
+            except json.JSONDecodeError:
+                    st.error("Failed to parse JSON for Excel creation.")
 
 
 if __name__ == "__main__":
-    run()
+    main()

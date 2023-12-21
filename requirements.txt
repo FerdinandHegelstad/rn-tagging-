@@ -1,5 +1,6 @@
-altair
-numpy
-pandas
-pydeck
-streamlit
+streamlit==1.10.0
+requests==2.27.1
+beautifulsoup4==4.11.1
+openai==0.10.2
+python-dotenv==0.20.0
+openpyxl==3.0.10
