@@ -9,9 +9,9 @@ from presets import preset_json, preset_url
 import pandas as pd
 
 
-def create_excel(scores_dict, filename="relevance_scores.xlsx"):
+def save_scores_to_excel(scores_dict, filename="relevance_scores.xlsx"):
     # Convert the dictionary to a DataFrame
-    df = pd.DataFrame(list(scores_dict.items()), columns=['Tag', 'Score'])
+    df = pd.DataFrame(list(scores_dict.items()), columns=["Tag", "Score"])
     # Write the DataFrame to an Excel file, overwriting if it already exists
     df.to_excel(filename, index=False)
     st.success(f"Excel file created/updated: {filename}")
@@ -23,13 +23,13 @@ load_dotenv()
 import sys
 print(sys.executable)
 
-client = OpenAI()
+openai_client = OpenAI()
 
-def get_relevance_scores_streaming(article_text, tags_json):
+def stream_relevance_scores(article_text, tags_json):
     try:
         prompt = f"Please return the JSON object with relevance scores from 0 to 1 for each of the following tags. Create a 1-1 correspondance with the tags given, and the ratings returned. Do not create news tags outside of these.:\n{tags_json}., based on their relevance to this article:\n{article_text}\n\n Then sort the Json based on relevance highest to lowest."
 
-        stream = client.chat.completions.create(
+        stream = openai_client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant designed to output JSON."},
@@ -45,7 +45,7 @@ def get_relevance_scores_streaming(article_text, tags_json):
         yield f"An error occurred while querying OpenAI: {e}"
 
 
-def scrape_article_content(url):
+def fetch_article_content(url):
     try:
         # Send a request to the URL
         response = requests.get(url)
@@ -76,27 +76,27 @@ def main():
     st.title("Web Article Relevance Scorer")
 
     # UI elements for input
-    url = st.text_input("Enter the URL of the article", preset_url)
+    article_url = st.text_input("Enter the URL of the article", preset_url)
     json_input = st.text_area("Enter your tag structure in JSON format", preset_json)
 
     print(preset_json)
 
     if st.button("Score Relevance"):
-        if url and json_input:
-            article_text = scrape_article_content(url)
+        if article_url and json_input:
+            article_text = fetch_article_content(article_url)
             response_placeholder = st.empty()  # Create a placeholder for streaming response
 
             # Initialize an empty string to accumulate the response
             response_text = ""
 
             # Stream the response and update the UI in real-time
-            for response_chunk in get_relevance_scores_streaming(article_text, json_input):
+            for response_chunk in stream_relevance_scores(article_text, json_input):
                 response_text += response_chunk  # Accumulate the response text
                 response_placeholder.write(response_text)  # Update the placeholder with the accumulated text
 
             try:
                 scores_dict = json.loads(response_text)
-                create_excel(scores_dict)
+                save_scores_to_excel(scores_dict)
             except json.JSONDecodeError:
                     st.error("Failed to parse JSON for Excel creation.")
 
