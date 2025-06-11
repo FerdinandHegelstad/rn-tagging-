@@ -39,17 +39,10 @@ def get_relevance_scores_streaming(article_text, tags_json):
             stream=True,
         )
 
-        # ... rest of the function ...
-
-
-        # Initialize an empty string to accumulate the response
-        response_text = ""
         for chunk in stream:
-            response_text += chunk.choices[0].delta.content or ""
-        
-        return response_text
+            yield chunk.choices[0].delta.content or ""
     except Exception as e:
-        return f"An error occurred while querying OpenAI: {e}"
+        yield f"An error occurred while querying OpenAI: {e}"
 
 
 def scrape_article_content(url):
